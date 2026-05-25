@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>LLM Inference · Tangle Cloud</title>
+    <script>
+      // Inline theme bootstrap + localStorage shim — mirrors the pattern
+      // every Tangle Cloud iframe blueprint uses. Runs during HTML parse,
+      // before any module evaluates, so the sandboxed-iframe localStorage
+      // SecurityError can't break hydration. (See agent-sandbox /
+      // trading-arena for the canonical version.)
+      (function () {
+        try {
+          var needsShim = false;
+          try {
+            window.localStorage.getItem('__probe__');
+            window.localStorage.setItem('__probe__', '1');
+            window.localStorage.removeItem('__probe__');
+          } catch (_e) {
+            needsShim = true;
+          }
+          if (needsShim) {
+            var mem = {};
+            var shim = {
+              getItem: function (k) {
+                return Object.prototype.hasOwnProperty.call(mem, k) ? mem[k] : null;
+              },
+              setItem: function (k, v) {
+                mem[k] = String(v);
+              },
+              removeItem: function (k) {
+                delete mem[k];
+              },
+              clear: function () {
+                mem = {};
+              },
+              key: function (i) {
+                return Object.keys(mem)[i] || null;
+              },
+            };
+            Object.defineProperty(shim, 'length', {
+              get: function () {
+                return Object.keys(mem).length;
+              },
+            });
+            try {
+              Object.defineProperty(window, 'localStorage', {
+                value: shim,
+                configurable: true,
+              });
+            } catch (_e) {}
+          }
+          var theme = null;
+          try {
+            var p = new URLSearchParams(window.location.search).get('theme');
+            if (p === 'light' || p === 'dark') theme = p;
+          } catch (_e) {}
+          if (!theme)
+            theme = window.matchMedia('(prefers-color-scheme: dark)').matches
+              ? 'dark'
+              : 'light';
+          document.documentElement.setAttribute('data-theme', theme);
+        } catch (_e) {
+          document.documentElement.setAttribute('data-theme', 'dark');
+        }
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
