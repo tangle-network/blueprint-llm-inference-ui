@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@tangle-network/blueprint-ui": "^0.5.1",
+    "@tangle-network/llm-inference-sdk": "^0.2.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "viem": "^2.31.7"

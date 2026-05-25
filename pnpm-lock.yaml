@@ -11,6 +11,9 @@ importers:
       '@tangle-network/blueprint-ui':
         specifier: ^0.5.1
         version: 0.5.1(2ce9b05540df18ae7c99efc28cb9834b)
+      '@tangle-network/llm-inference-sdk':
+        specifier: ^0.2.0
+        version: 0.2.0(@wagmi/core@3.4.12(@tanstack/query-core@5.100.14)(@types/react@19.2.15)(react@19.2.6)(typescript@5.9.3)(use-sync-external-store@1.4.0(react@19.2.6))(viem@2.51.0(typescript@5.9.3)))(viem@2.51.0(typescript@5.9.3))
       react:
         specifier: ^19.0.0
         version: 19.2.6
@@ -994,6 +997,15 @@ packages:
       tailwind-merge: ^3.2.0
       viem: ^2.31.0
       wagmi: ^3.3.0
+
+  '@tangle-network/llm-inference-sdk@0.2.0':
+    resolution: {integrity: sha512-nKuqcZqMjzWHbfM5cmatQm9vPNZeOWsmFZt2jeRUPMQ7L1S0+8ifnJEgNi4tTMvBbL5V6ZEsuas5DkGGQfheLw==}
+    peerDependencies:
+      '@wagmi/core': ^2.0.0
+      viem: ^2.21.0
+    peerDependenciesMeta:
+      '@wagmi/core':
+        optional: true
 
   '@tanstack/query-core@5.100.14':
     resolution: {integrity: sha512-5X41dGpxgeaHISCRW2oYwcSycZeULZzAunaudXT9ov1KOTj9xwt0CH6hbwqP1/z74ZWF7rYFnDpyYH07XFcZew==}
@@ -2473,6 +2485,12 @@ snapshots:
       tailwind-merge: 3.6.0
       viem: 2.51.0(typescript@5.9.3)
       wagmi: 3.6.15(@tanstack/query-core@5.100.14)(@tanstack/react-query@5.100.14(react@19.2.6))(@types/react@19.2.15)(react@19.2.6)(typescript@5.9.3)(viem@2.51.0(typescript@5.9.3))
+
+  '@tangle-network/llm-inference-sdk@0.2.0(@wagmi/core@3.4.12(@tanstack/query-core@5.100.14)(@types/react@19.2.15)(react@19.2.6)(typescript@5.9.3)(use-sync-external-store@1.4.0(react@19.2.6))(viem@2.51.0(typescript@5.9.3)))(viem@2.51.0(typescript@5.9.3))':
+    dependencies:
+      viem: 2.51.0(typescript@5.9.3)
+    optionalDependencies:
+      '@wagmi/core': 3.4.12(@tanstack/query-core@5.100.14)(@types/react@19.2.15)(react@19.2.6)(typescript@5.9.3)(use-sync-external-store@1.4.0(react@19.2.6))(viem@2.51.0(typescript@5.9.3))
 
   '@tanstack/query-core@5.100.14': {}
 

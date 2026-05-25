@@ -1,144 +1,109 @@
-import { useCallback, useMemo, useRef, useState } from 'react';
-import {
-  useChainContext,
-  useTangleMode,
-  useTangleService,
-  useTanglePublicClient,
-  useTangleWallet,
-} from '@tangle-network/blueprint-ui/iframe';
+import { useCallback, useRef, useState } from 'react'
+import { useTangleMode, useTangleWallet } from '@tangle-network/blueprint-ui/iframe'
 
-import {
-  streamChatCompletion,
-  type ChatMessage,
-} from './inferenceClient';
+import { useInferenceSession, type SessionState } from './useInferenceSession'
 
-type ThreadMessage = ChatMessage & { id: string; streaming?: boolean };
+interface ThreadMessage {
+  id: string
+  role: 'user' | 'assistant'
+  content: string
+  streaming?: boolean
+}
 
-let messageCounter = 0;
-const nextId = () => `m${messageCounter++}`;
+let messageCounter = 0
+const nextId = () => `m${messageCounter++}`
+
+// A modest default deposit (raw token units). The operator advertises pricing;
+// this funds enough for many requests at the example 1/2 wei-per-token rates.
+const DEFAULT_FUND_AMOUNT = 1_000_000_000_000_000_000n
 
 export function App() {
-  const mode = useTangleMode();
-  const wallet = useTangleWallet();
-  const service = useTangleService();
-  const chain = useChainContext();
-  const publicClient = useTanglePublicClient();
+  const mode = useTangleMode()
+  const wallet = useTangleWallet()
+  const session = useInferenceSession()
 
-  const [thread, setThread] = useState<ThreadMessage[]>([]);
-  const [draft, setDraft] = useState('');
-  const [isStreaming, setIsStreaming] = useState(false);
-  const abortRef = useRef<(() => void) | null>(null);
+  const [thread, setThread] = useState<ThreadMessage[]>([])
+  const [draft, setDraft] = useState('')
+  const [isStreaming, setIsStreaming] = useState(false)
+  const abortRef = useRef<(() => void) | null>(null)
 
-  // Active operator: first active one from the broadcast service context.
-  // The iframe never picks operators for signing — the parent's quote
-  // logic does that — but for READ-path inference the iframe talks to an
-  // operator's HTTP endpoint directly.
-  const operator = useMemo(
-    () =>
-      service.operators.find((o) => o.status === 'active') ??
-      service.operators[0] ??
-      null,
-    [service.operators],
-  );
-
-  const canSend =
-    !isStreaming &&
-    draft.trim().length > 0 &&
-    (operator?.rpcAddress != null || mode === 'dev');
+  const canChat = session.state === 'ready' || mode === 'dev'
+  const canSend = !isStreaming && draft.trim().length > 0 && canChat
 
   const send = useCallback(() => {
-    const prompt = draft.trim();
-    if (!prompt) return;
-    const userMsg: ThreadMessage = {
-      id: nextId(),
-      role: 'user',
-      content: prompt,
-    };
+    const prompt = draft.trim()
+    if (!prompt) return
+    const userMsg: ThreadMessage = { id: nextId(), role: 'user', content: prompt }
     const assistantMsg: ThreadMessage = {
       id: nextId(),
       role: 'assistant',
       content: '',
       streaming: true,
-    };
-    const baseThread = [...thread, userMsg];
-    setThread([...baseThread, assistantMsg]);
-    setDraft('');
-    setIsStreaming(true);
+    }
+    const history = [...thread, userMsg]
+    setThread([...history, assistantMsg])
+    setDraft('')
+    setIsStreaming(true)
 
-    // Dev mode without a real operator → echo a canned stream so the UI is
-    // iterable standalone. Production hits the operator endpoint.
-    const rpcUrl = operator?.rpcAddress;
-    if (!rpcUrl) {
-      simulateStream(assistantMsg.id, prompt, setThread, () =>
-        setIsStreaming(false),
-      );
-      return;
+    const patch = (content: string, streaming: boolean) =>
+      setThread((prev) =>
+        prev.map((m) =>
+          m.id === assistantMsg.id ? { ...m, content, streaming } : m,
+        ),
+      )
+
+    // Dev mode without a live operator → canned stream so the UI is iterable
+    // standalone. Production drives the real SDK client over SSE.
+    if (!session.client) {
+      simulateStream(prompt, patch, () => setIsStreaming(false))
+      return
     }
 
-    abortRef.current = streamChatCompletion({
-      operatorRpcUrl: rpcUrl,
-      account: wallet.address,
-      messages: baseThread.map(({ role, content }) => ({ role, content })),
-      handlers: {
-        onToken: (token) => {
-          setThread((prev) =>
-            prev.map((m) =>
-              m.id === assistantMsg.id
-                ? { ...m, content: m.content + token }
-                : m,
-            ),
-          );
+    abortRef.current = session.client.chatStream(
+      history.map(({ role, content }) => ({ role, content })),
+      {
+        onToken: ({ accumulated }) => patch(accumulated, true),
+        onDone: (full) => {
+          patch(full, false)
+          setIsStreaming(false)
         },
-        onDone: () => {
-          setThread((prev) =>
-            prev.map((m) =>
-              m.id === assistantMsg.id ? { ...m, streaming: false } : m,
-            ),
-          );
-          setIsStreaming(false);
-        },
-        onError: (error) => {
-          setThread((prev) =>
-            prev.map((m) =>
-              m.id === assistantMsg.id
-                ? {
-                    ...m,
-                    streaming: false,
-                    content:
-                      m.content || `⚠️ ${error.message}`,
-                  }
-                : m,
-            ),
-          );
-          setIsStreaming(false);
+        onError: (err) => {
+          patch(`⚠️ ${err.message}`, false)
+          setIsStreaming(false)
         },
       },
-    });
-  }, [draft, thread, operator, wallet.address]);
+    )
+  }, [draft, thread, session.client])
 
   const stop = useCallback(() => {
-    abortRef.current?.();
-    abortRef.current = null;
-    setIsStreaming(false);
+    abortRef.current?.()
+    abortRef.current = null
+    setIsStreaming(false)
     setThread((prev) =>
       prev.map((m) => (m.streaming ? { ...m, streaming: false } : m)),
-    );
-  }, []);
+    )
+  }, [])
+
+  const fund = useCallback(() => {
+    session.fund(DEFAULT_FUND_AMOUNT).catch(() => {
+      /* surfaced via session.error */
+    })
+  }, [session])
 
   return (
     <div className="app">
       <Header
         mode={mode}
         walletAddress={wallet.address}
-        chainName={chain?.name ?? null}
-        serviceId={service.serviceId}
-        operator={operator}
-        hasPublicClient={publicClient !== null}
+        model={session.info?.model ?? null}
+        operator={session.operator?.address ?? null}
+        balance={session.balance}
+        state={session.state}
       />
 
       <main className="thread" aria-live="polite">
         {thread.length === 0 ? (
-          <EmptyThread connected={wallet.isConnected} />
+          <Gate session={session} mode={mode} onFund={fund} />
         ) : (
           thread.map((m) => <Bubble key={m.id} message={m} />)
         )}
@@ -150,15 +115,11 @@ export function App() {
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === 'Enter' && !e.shiftKey) {
-              e.preventDefault();
-              if (canSend) send();
+              e.preventDefault()
+              if (canSend) send()
             }
           }}
-          placeholder={
-            wallet.isConnected
-              ? 'Ask the model anything…'
-              : 'Connect a wallet in Tangle Cloud to start'
-          }
+          placeholder={composerPlaceholder(session.state, mode)}
           rows={2}
         />
         {isStreaming ? (
@@ -177,7 +138,23 @@ export function App() {
         )}
       </footer>
     </div>
-  );
+  )
+}
+
+function composerPlaceholder(state: SessionState, mode: 'bridge' | 'dev'): string {
+  if (mode === 'dev') return 'Ask the model anything… (dev)'
+  switch (state) {
+    case 'no-wallet':
+      return 'Connect a wallet in Tangle Cloud to start'
+    case 'no-operator':
+      return 'No operator has deployed this service yet'
+    case 'needs-funding':
+      return 'Fund credits to start chatting'
+    case 'ready':
+      return 'Ask the model anything…'
+    default:
+      return 'Preparing inference session…'
+  }
 }
 
 // ── Subcomponents ────────────────────────────────────────────────────────────
@@ -185,17 +162,17 @@ export function App() {
 function Header({
   mode,
   walletAddress,
-  chainName,
-  serviceId,
+  model,
   operator,
-  hasPublicClient,
+  balance,
+  state,
 }: {
-  mode: 'bridge' | 'dev';
-  walletAddress: string | null;
-  chainName: string | null;
-  serviceId: string | null;
-  operator: { address: string; status: string } | null;
-  hasPublicClient: boolean;
+  mode: 'bridge' | 'dev'
+  walletAddress: string | null
+  model: string | null
+  operator: string | null
+  balance: bigint | null
+  state: SessionState
 }) {
   return (
     <header className="header">
@@ -212,25 +189,27 @@ function Header({
           value={walletAddress ? shorten(walletAddress) : 'Not connected'}
           tone={walletAddress ? 'ok' : 'warn'}
         />
-        <Stat label="Chain" value={chainName ?? '—'} tone={chainName ? 'ok' : 'muted'} />
-        <Stat
-          label="Service"
-          value={serviceId ?? 'Not deployed'}
-          tone={serviceId ? 'ok' : 'muted'}
-        />
+        <Stat label="Model" value={model ?? '—'} tone={model ? 'ok' : 'muted'} />
         <Stat
           label="Operator"
-          value={operator ? shorten(operator.address) : 'None'}
-          tone={operator?.status === 'active' ? 'ok' : 'muted'}
+          value={operator ? shorten(operator) : 'None'}
+          tone={operator ? 'ok' : 'muted'}
         />
         <Stat
-          label="RPC client"
-          value={hasPublicClient ? 'Ready' : 'Pending'}
-          tone={hasPublicClient ? 'ok' : 'muted'}
+          label="Credits"
+          value={balance === null ? '—' : balance.toString()}
+          tone={balance && balance > 0n ? 'ok' : 'muted'}
         />
+        <Stat label="Status" value={state} tone={stateTone(state)} />
       </div>
     </header>
-  );
+  )
+}
+
+function stateTone(state: SessionState): 'ok' | 'warn' | 'muted' {
+  if (state === 'ready') return 'ok'
+  if (state === 'error' || state === 'unconfigured') return 'warn'
+  return 'muted'
 }
 
 function Stat({
@@ -238,32 +217,103 @@ function Stat({
   value,
   tone,
 }: {
-  label: string;
-  value: string;
-  tone: 'ok' | 'warn' | 'muted';
+  label: string
+  value: string
+  tone: 'ok' | 'warn' | 'muted'
 }) {
   return (
     <div className={`stat ${tone}`}>
       <span className="stat-label">{label}</span>
       <span className="stat-value">{value}</span>
     </div>
-  );
+  )
 }
 
-function EmptyThread({ connected }: { connected: boolean }) {
+function Gate({
+  session,
+  mode,
+  onFund,
+}: {
+  session: ReturnType<typeof useInferenceSession>
+  mode: 'bridge' | 'dev'
+  onFund: () => void
+}) {
+  if (mode === 'dev') {
+    return (
+      <Empty
+        title="Inference-ready (dev)"
+        body="Standalone dev mode — send a prompt for a simulated stream. Embedded in Tangle Cloud, this same build inherits the wallet, signs SpendAuths locally, and streams from a real operator."
+      />
+    )
+  }
+  switch (session.state) {
+    case 'no-wallet':
+      return (
+        <Empty
+          title="Connect your wallet"
+          body="This blueprint inherits the wallet you connected in Tangle Cloud. Connect there to begin."
+        />
+      )
+    case 'no-operator':
+      return (
+        <Empty
+          title="No operator yet"
+          body="No operator has deployed an instance of this service. Once one is live, inference becomes available here."
+        />
+      )
+    case 'loading':
+      return <Empty title="Preparing…" body="Fetching operator info and your credit account." />
+    case 'unconfigured':
+      return (
+        <Empty
+          title="Operator not configured for payments"
+          body="This operator did not advertise a ShieldedCredits contract, so credits can't be funded from here."
+        />
+      )
+    case 'error':
+      return <Empty title="Something went wrong" body={session.error ?? 'Unknown error.'} />
+    case 'needs-funding':
+      return (
+        <div className="empty">
+          <div className="empty-glyph" aria-hidden>
+            ◆
+          </div>
+          <h2>Fund anonymous credits</h2>
+          <p>
+            Deposit once into a shielded credit account, then chat with no
+            per-message transaction. Each request is authorized by an ephemeral
+            key signed locally — the operator never learns who you are.
+          </p>
+          <button
+            type="button"
+            className="send"
+            onClick={onFund}
+            disabled={session.isFunding}
+          >
+            {session.isFunding ? 'Funding…' : 'Fund credits'}
+          </button>
+        </div>
+      )
+    case 'ready':
+      return (
+        <Empty
+          title="Inference-ready"
+          body="Send a prompt — it streams straight from the operator, billed against your prepaid credits. No transaction per message."
+        />
+      )
+  }
+}
+
+function Empty({ title, body }: { title: string; body: string }) {
   return (
     <div className="empty">
       <div className="empty-glyph" aria-hidden>
         ◆
       </div>
-      <h2>Inference-ready</h2>
-      <p>
-        {connected
-          ? 'Send a prompt — it streams straight from the operator. No transaction needed to chat; settlement happens on-chain when you choose.'
-          : 'This blueprint inherits the wallet you connected in Tangle Cloud. Connect there to begin.'}
-      </p>
+      <h2>{title}</h2>
+      <p>{body}</p>
     </div>
-  );
+  )
 }
 
 function Bubble({ message }: { message: ThreadMessage }) {
@@ -275,48 +325,37 @@ function Bubble({ message }: { message: ThreadMessage }) {
         {message.streaming && <span className="caret" aria-hidden />}
       </div>
     </div>
-  );
+  )
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 function shorten(addr: string): string {
-  return addr.length > 12 ? `${addr.slice(0, 6)}…${addr.slice(-4)}` : addr;
+  return addr.length > 12 ? `${addr.slice(0, 6)}…${addr.slice(-4)}` : addr
 }
 
-/**
- * Dev-mode canned stream so the UI is iterable standalone (no operator).
- * Production never hits this — it's the same code path the dev harness
- * exercises.
- */
 function simulateStream(
-  messageId: string,
   prompt: string,
-  setThread: React.Dispatch<React.SetStateAction<ThreadMessage[]>>,
+  patch: (content: string, streaming: boolean) => void,
   onDone: () => void,
 ) {
   const canned =
-    `You said: "${prompt}". This is a simulated stream — in production ` +
-    `these tokens come from the operator's inference endpoint over SSE. ` +
-    `The thin-iframe SDK gave this app the wallet + chain + operator ` +
-    `context with zero wallet code.`;
-  const tokens = canned.split(' ');
-  let i = 0;
+    `You said: "${prompt}". This is a simulated stream — in production these ` +
+    `tokens come from the operator's vLLM endpoint over SSE, billed against ` +
+    `prepaid shielded credits. The SpendAuth is signed locally by an ephemeral ` +
+    `key; only funding touches your real wallet, through the Tangle bridge.`
+  const tokens = canned.split(' ')
+  let i = 0
+  let acc = ''
   const interval = setInterval(() => {
     if (i >= tokens.length) {
-      clearInterval(interval);
-      setThread((prev) =>
-        prev.map((m) => (m.id === messageId ? { ...m, streaming: false } : m)),
-      );
-      onDone();
-      return;
+      clearInterval(interval)
+      patch(acc, false)
+      onDone()
+      return
     }
-    const token = (i === 0 ? '' : ' ') + tokens[i];
-    i += 1;
-    setThread((prev) =>
-      prev.map((m) =>
-        m.id === messageId ? { ...m, content: m.content + token } : m,
-      ),
-    );
-  }, 40);
+    acc += (i === 0 ? '' : ' ') + tokens[i]
+    i += 1
+    patch(acc, true)
+  }, 40)
 }
