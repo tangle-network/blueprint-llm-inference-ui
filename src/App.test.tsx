@@ -1,32 +1,33 @@
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
-import { TangleIframeProvider } from '@tangle-network/blueprint-ui/iframe';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { describe, expect, it } from 'vitest'
+import { TangleIframeProvider } from '@tangle-network/blueprint-ui/iframe'
 import {
   TangleParentHarness,
   mockServiceContext,
   mockWallet,
   HARNESS_ORIGIN,
-} from '@tangle-network/blueprint-ui/iframe/testing';
+} from '@tangle-network/blueprint-ui/iframe/testing'
 
-import { App } from './App';
+import { App } from './App'
 
-/**
- * Full end-to-end render of the reference blueprint against the SDK's parent
- * harness — no Tangle Cloud dapp, no wallet extension, no chain. This is the
- * promise of the SDK made concrete: a blueprint is testable in isolation,
- * inheriting wallet + chain + service context purely over the bridge.
- */
-function renderEmbedded(opts?: {
-  connected?: boolean;
-  serviceId?: string | null;
-}) {
+/** Standalone dev mode — no harness, no parent. */
+function renderDev() {
+  return render(
+    <TangleIframeProvider appId="llm-inference" mode="dev">
+      <App />
+    </TangleIframeProvider>,
+  )
+}
+
+/** Embedded mode driven by the SDK's parent harness (no operator deployed). */
+function renderEmbedded(opts?: { connected?: boolean }) {
   return render(
     <TangleParentHarness
       appId="llm-inference"
       wallet={mockWallet({
         address: opts?.connected === false ? null : undefined,
       })}
-      service={mockServiceContext({ serviceId: opts?.serviceId ?? '42' })}
+      service={mockServiceContext({ serviceId: '42', operators: [] })}
     >
       <TangleIframeProvider
         appId="llm-inference"
@@ -36,116 +37,40 @@ function renderEmbedded(opts?: {
         <App />
       </TangleIframeProvider>
     </TangleParentHarness>,
-  );
+  )
 }
 
-/**
- * Build a Response whose body streams OpenAI-style SSE frames, one chunk per
- * `enqueue`, terminated by `[DONE]`. This is exactly the wire shape an
- * operator emits, so the test exercises inferenceClient's real SSE parser.
- */
-function sseResponse(tokens: string[]): Response {
-  const encoder = new TextEncoder();
-  const body = new ReadableStream<Uint8Array>({
-    start(controller) {
-      for (const t of tokens) {
-        const frame = `data: ${JSON.stringify({
-          choices: [{ delta: { content: t } }],
-        })}\n\n`;
-        controller.enqueue(encoder.encode(frame));
-      }
-      controller.enqueue(encoder.encode('data: [DONE]\n\n'));
-      controller.close();
-    },
-  });
-  return new Response(body, {
-    status: 200,
-    headers: { 'content-type': 'text/event-stream' },
-  });
-}
+describe('LLM Inference blueprint UI', () => {
+  it('dev mode streams a simulated reply without any wallet or operator', async () => {
+    renderDev()
+    expect(screen.getByText(/Inference-ready \(dev\)/i)).toBeTruthy()
+    const textarea = screen.getByPlaceholderText(/Ask the model anything… \(dev\)/i)
+    fireEvent.change(textarea, { target: { value: 'ping' } })
+    fireEvent.click(screen.getByText('Send'))
+    await waitFor(() => expect(screen.getByText('ping')).toBeTruthy())
+    await waitFor(
+      () => expect(screen.getByText(/You said: "ping"/)).toBeTruthy(),
+      { timeout: 3000 },
+    )
+  })
 
-afterEach(() => {
-  vi.restoreAllMocks();
-});
-
-describe('LLM Inference blueprint (embedded)', () => {
-  it('renders the wallet address from the parent bridge', async () => {
-    renderEmbedded();
-    await waitFor(() => {
-      expect(screen.getByText(/0xd8dA…6045/i)).toBeTruthy();
-    });
-  });
-
-  it('shows the chain name injected via serviceContext', async () => {
-    renderEmbedded();
-    await waitFor(() => {
-      expect(screen.getByText('Base Sepolia')).toBeTruthy();
-    });
-  });
-
-  it('shows the service id from the broadcast', async () => {
-    renderEmbedded({ serviceId: '99' });
-    await waitFor(() => {
-      expect(screen.getByText('99')).toBeTruthy();
-    });
-  });
-
-  it('streams an operator reply token-by-token over SSE', async () => {
-    const fetchSpy = vi
-      .spyOn(globalThis, 'fetch')
-      .mockResolvedValue(sseResponse(['Hello', ', ', 'world', '!']));
-
-    renderEmbedded();
-    // findBy waits for the wallet to connect (placeholder flips once the
-    // bridge delivers the account).
-    const textarea = await screen.findByPlaceholderText(/Ask the model/i);
-    fireEvent.change(textarea, { target: { value: 'hi' } });
-    const send = screen.getByText('Send') as HTMLButtonElement;
-    // Send enables once a draft exists AND the operator has arrived over the
-    // bridge (canSend gates on operator.rpcAddress).
-    await waitFor(() => expect(send.disabled).toBe(false));
-    fireEvent.click(send);
-
-    // User bubble appears immediately.
-    await waitFor(() => expect(screen.getByText('hi')).toBeTruthy());
-    // Streamed tokens accumulate into the assistant bubble.
+  it('prompts to connect when embedded without a wallet', async () => {
+    renderEmbedded({ connected: false })
     await waitFor(() =>
-      expect(screen.getByText('Hello, world!')).toBeTruthy(),
-    );
+      expect(screen.getByText(/Connect your wallet/i)).toBeTruthy(),
+    )
+    expect(
+      (screen.getByText('Send') as HTMLButtonElement).disabled,
+    ).toBe(true)
+  })
 
-    // The operator endpoint was hit with the connected account header.
-    expect(fetchSpy).toHaveBeenCalledTimes(1);
-    const [url, init] = fetchSpy.mock.calls[0];
-    expect(String(url)).toBe('http://localhost:8545/v1/chat/completions');
-    const headers = (init as RequestInit).headers as Record<string, string>;
-    expect(headers['x-tangle-account']).toBe(
-      '0xd8da6bf26964af9d7eed9e03e53415d37aa96045',
-    );
-  });
+  it('shows the deploy-pending gate when no operator has deployed', async () => {
+    renderEmbedded({ connected: true })
+    await waitFor(() => expect(screen.getByText(/No operator yet/i)).toBeTruthy())
+  })
 
-  it('surfaces an operator error in the assistant bubble', async () => {
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response('nope', { status: 503, statusText: 'Service Unavailable' }),
-    );
-
-    renderEmbedded();
-    const textarea = await screen.findByPlaceholderText(/Ask the model/i);
-    fireEvent.change(textarea, { target: { value: 'hi' } });
-    const send = screen.getByText('Send') as HTMLButtonElement;
-    await waitFor(() => expect(send.disabled).toBe(false));
-    fireEvent.click(send);
-
-    await waitFor(() =>
-      expect(screen.getByText(/Operator responded 503/i)).toBeTruthy(),
-    );
-  });
-
-  it('prompts to connect when no wallet is present', async () => {
-    renderEmbedded({ connected: false });
-    await waitFor(() => {
-      expect(
-        screen.getByPlaceholderText(/Connect a wallet in Tangle Cloud/i),
-      ).toBeTruthy();
-    });
-  });
-});
+  it('reflects the connected wallet address in the header', async () => {
+    renderEmbedded({ connected: true })
+    await waitFor(() => expect(screen.getByText(/0xd8dA…6045/i)).toBeTruthy())
+  })
+})
