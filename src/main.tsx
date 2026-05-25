@@ -14,7 +14,16 @@ createRoot(document.getElementById('root')!).render(
       (localhost / direct visit) it falls into dev mode — same hooks, no
       parent — so this exact build is iterable without the dapp running.
     */}
-    <TangleIframeProvider appId="llm-inference">
+    {/*
+      Local dev: `auto` lets the app run standalone (dev mode) against the
+      simulate path. Production: force `bridge` so a standalone visit can't
+      fall into dev mode — it shows the "open from Tangle Cloud" gate instead
+      of faking inference. Embedded by the dapp, `bridge` is what we want anyway.
+    */}
+    <TangleIframeProvider
+      appId="llm-inference"
+      mode={import.meta.env.DEV ? 'auto' : 'bridge'}
+    >
       <App />
     </TangleIframeProvider>
   </StrictMode>,
