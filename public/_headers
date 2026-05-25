@@ -1,0 +1,2 @@
+/*
+  Content-Security-Policy: frame-ancestors https://cloud.tangle.tools https://*.cloud.tangle.tools https://app.tangle.tools https://*.app.tangle.tools https://apps.tangle.tools https://*.apps.tangle.tools

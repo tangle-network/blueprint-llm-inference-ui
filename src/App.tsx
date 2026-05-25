@@ -27,7 +27,10 @@ export function App() {
   const [isStreaming, setIsStreaming] = useState(false)
   const abortRef = useRef<(() => void) | null>(null)
 
-  const canChat = session.state === 'ready' || mode === 'dev'
+  // Real inference requires a ready session. The dev simulate path is only
+  // available when running the local dev server — a production build must
+  // never fake a stream, even if opened standalone (mode would be 'dev').
+  const canChat = session.state === 'ready' || (mode === 'dev' && import.meta.env.DEV)
   const canSend = !isStreaming && draft.trim().length > 0 && canChat
 
   const send = useCallback(() => {
@@ -52,10 +55,14 @@ export function App() {
         ),
       )
 
-    // Dev mode without a live operator → canned stream so the UI is iterable
-    // standalone. Production drives the real SDK client over SSE.
+    // Local dev only: canned stream so the UI is iterable without an operator.
+    // Never reachable in a production build (canChat gates it off).
     if (!session.client) {
-      simulateStream(prompt, patch, () => setIsStreaming(false))
+      if (import.meta.env.DEV) {
+        simulateStream(prompt, patch, () => setIsStreaming(false))
+      } else {
+        setIsStreaming(false)
+      }
       return
     }
 
