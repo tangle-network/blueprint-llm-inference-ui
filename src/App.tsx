@@ -248,8 +248,8 @@ function Gate({
   if (mode === 'dev') {
     return (
       <Empty
-        title="Inference-ready (dev)"
-        body="Standalone dev mode — send a prompt for a simulated stream. Embedded in Tangle Cloud, this same build inherits the wallet, signs SpendAuths locally, and streams from a real operator."
+        title="Dev mode active"
+        body="Running standalone — send a prompt for a simulated stream. Embedded in Tangle Cloud, this same build inherits your wallet and streams from a real operator."
       />
     )
   }
@@ -257,39 +257,39 @@ function Gate({
     case 'no-wallet':
       return (
         <Empty
-          title="Connect your wallet"
-          body="This blueprint inherits the wallet you connected in Tangle Cloud. Connect there to begin."
+          title="Connect to start chatting"
+          body="Your Tangle Cloud wallet connects automatically. Open this blueprint from the dashboard to link your account."
         />
       )
     case 'no-operator':
       return (
         <Empty
-          title="No operator yet"
-          body="No operator has deployed an instance of this service. Once one is live, inference becomes available here."
+          title="No operator available"
+          body="No operator is running this model yet. Check back soon or browse other blueprints."
         />
       )
     case 'loading':
-      return <Empty title="Preparing…" body="Fetching operator info and your credit account." />
+      return <Empty title="Connecting…" body="Linking your wallet to the operator and checking your credit balance." />
     case 'unconfigured':
       return (
         <Empty
-          title="Operator not configured for payments"
-          body="This operator did not advertise a ShieldedCredits contract, so credits can't be funded from here."
+          title="Payments not configured"
+          body="This operator hasn't set up shielded credits yet, so prepaid inference isn't available."
         />
       )
     case 'error':
-      return <Empty title="Something went wrong" body={session.error ?? 'Unknown error.'} />
+      return <Empty title="Connection failed" body={session.error ?? 'Something went wrong. Try refreshing the page.'} />
     case 'needs-funding':
       return (
         <div className="empty">
           <div className="empty-glyph" aria-hidden>
             ◆
           </div>
-          <h2>Fund anonymous credits</h2>
+          <h2>Fund your credits</h2>
           <p>
-            Deposit once into a shielded credit account, then chat with no
-            per-message transaction. Each request is authorized by an ephemeral
-            key signed locally — the operator never learns who you are.
+            Deposit once to unlock pay-per-token inference. Each request is
+            authorized by an ephemeral key — the operator never sees your
+            wallet address.
           </p>
           <button
             type="button"
@@ -304,8 +304,8 @@ function Gate({
     case 'ready':
       return (
         <Empty
-          title="Inference-ready"
-          body="Send a prompt — it streams straight from the operator, billed against your prepaid credits. No transaction per message."
+          title="Ready to chat"
+          body="Send a message below. Responses stream live from the operator's model, billed against your prepaid credits."
         />
       )
   }
