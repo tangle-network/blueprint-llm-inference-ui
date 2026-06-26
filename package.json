@@ -12,6 +12,9 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@fontsource/dm-sans": "^5.2.8",
+    "@fontsource/ibm-plex-mono": "^5.2.7",
+    "@fontsource/outfit": "^5.2.8",
     "@tangle-network/blueprint-ui": "^0.5.1",
     "@tangle-network/llm-inference-sdk": "^0.2.0",
     "react": "^19.0.0",
@@ -19,12 +22,15 @@
     "viem": "^2.31.7"
   },
   "devDependencies": {
+    "@iconify-json/ph": "^1.2.2",
     "@testing-library/react": "^16.1.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
+    "@unocss/preset-wind4": "^66.7.3",
     "@vitejs/plugin-react": "^4.3.4",
     "happy-dom": "^15.11.0",
     "typescript": "^5.7.0",
+    "unocss": "^66.7.3",
     "vite": "^6.0.0",
     "vitest": "^2.1.0"
   }
